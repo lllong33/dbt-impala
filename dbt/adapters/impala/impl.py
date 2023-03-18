@@ -16,16 +16,18 @@ import json
 import re
 from collections import OrderedDict
 from concurrent.futures import Future, as_completed
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple, Optional
 
 import agate
 import dbt.exceptions
+from dbt.exceptions import get_relation_returned_multiple_results
 from dbt.adapters.base.impl import catch_as_completed
+from dbt.adapters.base.relation import BaseRelation
+from dbt.adapters.base.meta import available
 from dbt.adapters.sql import SQLAdapter
 from dbt.clients import agate_helper
 from dbt.clients.agate_helper import ColumnTypeBuilder, NullableAgateType, _NullMarker
 from dbt.events import AdapterLogger
-from dbt.exceptions import warn_or_error
 from dbt.utils import executor
 
 import dbt.adapters.impala.cloudera_tracking as tracker
@@ -105,6 +107,49 @@ class ImpalaAdapter(SQLAdapter):
             schemas.append(_schema)
 
         return schemas
+    
+    @available.parse_none
+    def get_relation(self, database: str, schema: str, identifier: str) -> Optional[BaseRelation]:
+        relations_list = self.list_relations(database, schema, identifier)
+
+        matches = self._make_match(relations_list, database, schema, identifier)
+
+        if len(matches) > 1:
+            kwargs = {
+                "identifier": identifier,
+                "schema": schema,
+                "database": database,
+            }
+            get_relation_returned_multiple_results(kwargs, matches)
+
+        elif matches:
+            return matches[0]
+
+        return None
+    
+    def list_relations(self, database: Optional[str], schema: str, identifier: str) -> List[BaseRelation]:
+        # if self._schema_is_cached(database, schema): # todo 为什么这里能返回true?  但是实际拿不到任何值
+        #     return self.cache.get_relations(database, schema)
+
+        schema_relation = self.Relation.create(
+            database=database,
+            schema=schema,
+            identifier=identifier,
+            quote_policy=self.config.quoting,
+        )
+
+        # we can't build the relations cache because we don't have a
+        # manifest so we can't run any operations.
+        relations = self.list_relations_without_caching(schema_relation)
+        # fire_event(
+        #     ListRelations(
+        #         database=database,
+        #         schema=schema,
+        #         relations=[_make_key(x) for x in relations],
+        #     )
+        # )
+
+        return relations
 
     def list_relations_without_caching(
         self, schema_relation: ImpalaRelation

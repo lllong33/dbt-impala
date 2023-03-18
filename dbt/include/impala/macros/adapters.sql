@@ -127,10 +127,10 @@
 
 {# Note: This function currently needs to query each object to determine its type. Depending on the schema, this function could be expensive. #}
 {% macro impala__list_relations_without_caching(relation) %}
-  {% set result_set = run_query('show tables in ' ~ relation) %}
+  {% set result_set = run_query('show tables in ' ~ relation.schema) %}
   {% set objects_with_type = [] %}
 
-  {%- for rs in result_set -%}
+  {%- for rs in result_set if rs[0] == relation.identifier -%}
     {% set obj_type = [] %}
 
     {% do obj_type.append(rs[0]) %}
